@@ -1,16 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { useCart } from '@/app/contexts/CartContext'
+import { useCart } from '@/contexts/CartContext'
 import { useRouter } from 'next/navigation'
 import { loadStripe } from '@stripe/stripe-js'
-import { sendOrderConfirmationEmail } from '@/app/utils/emailService'
+import { sendOrderConfirmationEmail } from '@/utils/emailService'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 export default function CheckoutPage() {
   const { cart, getSubtotal, getDiscount, getTaxes, getShipping, getTotal, clearCart } = useCart()
   const router = useRouter()
+  const [error, setError] = useState<string | null>(null)
   const [shippingDetails, setShippingDetails] = useState({
     name: '',
     email: '',
@@ -27,54 +28,57 @@ export default function CheckoutPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
     const stripe = await stripePromise
 
-    const response = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        shippingDetails,
-        amount: getTotal(),
-      }),
-    })
-
-    const session = await response.json()
-
-    if (session.id) {
-      const result = await stripe!.redirectToCheckout({
-        sessionId: session.id,
+    try {
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          shippingDetails,
+          amount: getTotal(),
+        }),
       })
 
-      if (result.error) {
-        console.error(result.error.message)
-      } else {
-        // Send order confirmation email
-        const orderNumber = Math.floor(100000 + Math.random() * 900000).toString()
-        await sendOrderConfirmationEmail({
-          orderNumber,
-          customerName: shippingDetails.name,
-          customerEmail: shippingDetails.email,
-          totalAmount: getTotal(),
-          items: cart.map(item => ({
-            name: item.product.name,
-            quantity: item.quantity,
-            price: item.product.price
-          }))
+      if (!response.ok) {
+        throw new Error('Network response was not ok')
+      }
+
+      const session = await response.json()
+
+      if (session.error) {
+        throw new Error(session.error)
+      }
+
+      if (session.id) {
+        const result = await stripe!.redirectToCheckout({
+          sessionId: session.id,
         })
 
-        clearCart()
-        router.push(`/order-confirmation?orderNumber=${orderNumber}`)
+        if (result.error) {
+          throw new Error(result.error.message)
+        }
+      } else {
+        throw new Error('Failed to create checkout session')
       }
-    } else {
-      console.error('Failed to create checkout session')
+    } catch (error: any) {
+      console.error('Checkout Error:', error)
+      setError(error.message || 'An error occurred during checkout')
     }
   }
 
   return (
     <div className="container mx-auto px-4 py-16">
       <h1 className="text-3xl font-bold mb-8 text-green-800">Checkout</h1>
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+          <strong className="font-bold">Error:</strong>
+          <span className="block sm:inline"> {error}</span>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="max-w-lg mx-auto">
         <div className="mb-4">
           <label htmlFor="name" className="block text-gray-700 font-bold mb-2">Full Name</label>
@@ -162,6 +166,8 @@ export default function CheckoutPage() {
     </div>
   )
 }
+
+
 
 
 
