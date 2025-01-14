@@ -1,25 +1,17 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 
-// Stripe key ko ensure karein
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is not defined in environment variables')
-}
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2024-12-18.acacia', // Latest Stripe API version
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2022-11-15',
 })
 
-export async function POST(request: Request): Promise<NextResponse> {
-  try {
-    const { amount }: { amount: number } = await request.json()
+export async function POST(request: Request) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: 'Stripe API key is not configured' }, { status: 500 })
+  }
 
-    if (!amount || amount <= 0) {
-      return NextResponse.json(
-        { error: 'Invalid amount provided' },
-        { status: 400 }
-      )
-    }
+  try {
+    const { shippingDetails, amount } = await request.json()
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -44,14 +36,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     })
 
     return NextResponse.json({ id: session.id })
-  } catch (err) {
-    if (err instanceof Stripe.errors.StripeError) {
-      return NextResponse.json({ error: err.message }, { status: 500 })
-    }
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    )
+  } catch (err: any) {
+    console.error('Stripe API Error:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
+
 
